@@ -2,33 +2,18 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>釣銭準備</title>
-  <script type="module">
-    import { startWorker } from './worker.js';
-
-    document.addEventListener('DOMContentLoaded', () => {
-      const btn = document.getElementById('run');
-      const result = document.getElementById('result');
-      const status = document.getElementById('status');
-
-      btn.addEventListener('click', async () => {
-        result.textContent = '';
-        status.textContent = '調整中です…';
-
-        const res = await startWorker({ hello: 'world' });
-
-        result.textContent = JSON.stringify(res);
-        status.textContent = '';
-      });
-    });
-  </script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>釣銭準備ツール</title>
+  <script type="module" src="main.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body class="p-4">
-  <h1 class="text-xl font-bold mb-4">釣銭準備（Worker版）</h1>
-  <button id="run" class="bg-blue-500 text-white px-4 py-2 rounded">調整実行</button>
-  <div id="status" class="mt-4 text-gray-600"></div>
-  <pre id="result" class="mt-2 bg-gray-100 p-2 rounded text-sm"></pre>
+<body class="bg-gray-100 p-4">
+  <div class="max-w-md mx-auto bg-white p-6 rounded-2xl shadow">
+    <h1 class="text-xl font-bold mb-4">釣銭準備ツール</h1>
+    <div id="inputs" class="space-y-2"></div>
+    <button id="calc" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded">計算する</button>
+    <div id="loading" class="mt-4 text-blue-500 hidden">調整中です...</div>
+    <pre id="result" class="mt-4 whitespace-pre-wrap bg-gray-100 p-4 rounded"></pre>
+  </div>
 </body>
 </html>
