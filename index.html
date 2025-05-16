@@ -2,181 +2,130 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>釣銭準備ツール</title>
-  <script defer>
-    document.addEventListener("DOMContentLoaded", () => {
-      const denominations = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1];
-      const targets = { 5000: 15, 1000: 42, 500: 50, 100: 100, 50: 50, 10: 100, 5: 16, 1: 20 };
-      const targetTotal = Object.entries(targets).reduce((sum, [k, v]) => sum + k * v, 0);
-      const stockInputs = {};
-      const excludeChecks = {};
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>釣銭準備</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+  <div class="max-w-2xl mx-auto p-4">
+    <h1 class="text-2xl font-bold mb-4 text-center">釣銭準備</h1>
 
-      const stockContainer = document.getElementById("stockInputs");
+    <div id="input-area" class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6"></div>
+
+    <button onclick="calculateShortage()" class="w-full bg-blue-500 text-white py-2 rounded mb-4">不足を計算する</button>
+    <button onclick="adjustShortage()" class="w-full bg-green-500 text-white py-2 rounded">調整</button>
+
+    <div id="shortageResult" class="mt-6 bg-white p-4 rounded shadow whitespace-pre-wrap"></div>
+    <div id="adjustmentResult" class="mt-6 bg-white p-4 rounded shadow whitespace-pre-wrap"></div>
+  </div>
+
+  <script type="module">
+    const denominations = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1];
+    const baseTargets = {
+      10000: 0,
+      5000: 15,
+      1000: 42,
+      500: 50,
+      100: 100,
+      50: 50,
+      10: 100,
+      5: 16,
+      1: 20
+    };
+
+    let latestInput = {};
+    let excludedShortageAdjustments = new Set();
+
+    const inputArea = document.getElementById("input-area");
+    denominations.forEach(denom => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "flex items-center space-x-2 min-w-0";
+      wrapper.innerHTML = `
+        <label class="w-20 font-medium">${denom}円</label>
+        <input id="input${denom}" type="number" min="0" value="" class="flex-1 p-1 border rounded w-full" />
+        <label class="text-sm whitespace-nowrap">
+          <input id="exclude${denom}" type="checkbox" class="mr-1" />
+          除外
+        </label>
+      `;
+      inputArea.appendChild(wrapper);
+    });
+
+    function calculateShortage() {
+      const input = {};
       denominations.forEach(denom => {
-        const row = document.createElement("div");
-        row.className = "flex items-center space-x-2";
+        input[denom] = parseInt(document.getElementById(`input${denom}`).value || "0", 10);
+      });
+      latestInput = input;
 
-        const label = document.createElement("label");
-        label.textContent = `${denom}円`;
-        label.className = "w-16";
+      let resultText = `【調整前不足金種】\n`;
+      let total = 0;
+      for (let denom of denominations) {
+        const shortage = Math.max(0, baseTargets[denom] - input[denom]);
+        if (shortage > 0) {
+          resultText += `${denom}円×${shortage}枚 = ${denom * shortage}円\n`;
+          total += denom * shortage;
+        }
+      }
+      resultText += `不足合計　${total.toLocaleString()}円`;
 
-        const input = document.createElement("input");
-        input.type = "number";
-        input.min = 0;
-        input.value = 0;
-        input.className = "w-20 border rounded p-1 text-right";
-        stockInputs[denom] = input;
+      document.getElementById("shortageResult").innerText = resultText;
+      document.getElementById("adjustmentResult").innerText = "";
+    }
 
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.className = "ml-4";
-        excludeChecks[denom] = checkbox;
+    async function adjustShortage() {
+      if (!latestInput || Object.keys(latestInput).length === 0) {
+        document.getElementById("adjustmentResult").innerText = "※ 先に「不足を計算する」を押してください。";
+        return;
+      }
 
-        const cbLabel = document.createElement("label");
-        cbLabel.textContent = "固定";
-        cbLabel.className = "ml-1 text-sm";
+      excludedShortageAdjustments = new Set(
+        denominations.filter(denom => document.getElementById(`exclude${denom}`).checked)
+      );
 
-        row.append(label, input, checkbox, cbLabel);
-        stockContainer.appendChild(row);
+      document.getElementById("adjustmentResult").innerText = "調整中です...";
+
+      const worker = new Worker("worker.js", { type: "module" });
+
+      worker.postMessage({
+        input: latestInput,
+        baseTargets,
+        maxTry: 10,
+        excluded: [...excludedShortageAdjustments]
       });
 
-      const calculateBtn = document.getElementById("calculateBtn");
-      const adjustBtn = document.getElementById("adjustBtn");
-      const resultDiv = document.getElementById("result");
-
-      let latestShortage = {};
-
-      calculateBtn.onclick = () => {
-        const stock = {};
-        denominations.forEach(d => stock[d] = parseInt(stockInputs[d].value || "0", 10));
-        const shortage = {};
-        for (const d in targets) {
-          const needed = targets[d];
-          const have = stock[d] || 0;
-          if (have < needed) shortage[d] = needed - have;
-        }
-        latestShortage = shortage;
-        const shortageText = Object.entries(shortage)
-          .map(([k, v]) => `${k}円 × ${v}枚`)
-          .join("、");
-        resultDiv.innerHTML = `<div class="mt-2">不足：${shortageText || "なし"}</div>`;
-      };
-
-      adjustBtn.onclick = () => {
-        const stock = {};
-        denominations.forEach(d => stock[d] = parseInt(stockInputs[d].value || "0", 10));
-
-        const exclude = {};
-        for (const d of denominations) {
-          if (excludeChecks[d].checked) exclude[d] = true;
-        }
-
-        const shortage = { ...latestShortage };
-        const keys = Object.keys(shortage).map(Number);
-        const fixed = keys.filter(d => exclude[d]);
-
-        const tries = [];
-        const maxTry = 3;
-
-        function backtrack(idx, current) {
-          if (idx === keys.length) {
-            let totalShort = 0;
-            for (let i = 0; i < keys.length; i++) {
-              totalShort += keys[i] * current[i];
-            }
-            if (totalShort < 1000 || totalShort < 0.8 * estimateShortageValue()) return;
-
-            const trialStock = { ...stock };
-            for (let i = 0; i < keys.length; i++) {
-              trialStock[keys[i]] += current[i];
-            }
-
-            const need = {};
-            for (const d in targets) {
-              const have = trialStock[d] || 0;
-              const want = targets[d];
-              if (have < want) need[d] = want - have;
-            }
-
-            const filled = fillShortage(need, trialStock);
-            if (filled) {
-              tries.push({
-                added: keys.reduce((obj, k, i) => (obj[k] = current[i], obj), {}),
-                fill: filled
-              });
-            }
-            return;
-          }
-
-          const d = keys[idx];
-          const fixedVal = fixed.includes(d) ? shortage[d] : null;
-
-          const max = fixedVal !== null ? fixedVal : Math.min(maxTry, shortage[d] + 1);
-          const min = fixedVal !== null ? fixedVal : 0;
-
-          for (let i = min; i <= max; i++) {
-            current[idx] = i;
-            backtrack(idx + 1, current);
-          }
-        }
-
-        function fillShortage(need, trialStock) {
-          const result = {};
-          const denoms = denominations.slice().sort((a, b) => b - a);
-          let total = 0;
-
-          for (const d of denoms) {
-            const want = need[d] || 0;
-            const have = trialStock[d] || 0;
-            const use = Math.min(want, have);
-            if (use > 0) {
-              result[d] = use;
-              total += d * use;
-            }
-          }
-
-          return Object.keys(need).every(k => result[k] >= need[k]) ? result : null;
-        }
-
-        function estimateShortageValue() {
-          return Object.entries(latestShortage).reduce((sum, [k, v]) => sum + k * v, 0);
-        }
-
-        backtrack(0, Array(keys.length).fill(0));
-
-        if (tries.length === 0) {
-          resultDiv.innerHTML = `<div class="mt-2 text-red-500">調整失敗：補填できる組み合わせが見つかりませんでした。</div>`;
+      worker.onmessage = (event) => {
+        const { best } = event.data;
+        if (!best) {
+          document.getElementById("adjustmentResult").innerText = "※ 補填できませんでした。";
           return;
         }
 
-        const best = tries.reduce((a, b) => {
-          const aCount = Object.values(a.fill).reduce((s, v) => s + v, 0);
-          const bCount = Object.values(b.fill).reduce((s, v) => s + v, 0);
-          return aCount <= bCount ? a : b;
-        });
+        const { shortage, shortageTotal, combo } = best;
 
-        for (const d in best.added) {
-          stockInputs[d].value = parseInt(stockInputs[d].value || "0", 10) + best.added[d];
+        let resultText = `【調整後不足金種】\n`;
+        for (let denom of denominations) {
+          if (shortage[denom]) {
+            resultText += `${denom}円×${shortage[denom]}枚 = ${denom * shortage[denom]}円\n`;
+          }
         }
+        resultText += `不足合計　${shortageTotal.toLocaleString()}円\n\n`;
 
-        const fillText = Object.entries(best.fill)
-          .map(([k, v]) => `${k}円 × ${v}枚`)
-          .join("、");
+        resultText += `【補填内訳】\n`;
+        let 補填合計 = 0;
+        for (let denom of denominations) {
+          if (combo[denom]) {
+            const amount = denom * combo[denom];
+            補填合計 += amount;
+            resultText += `${denom}円×${combo[denom]}枚 = ${amount.toLocaleString()}円\n`;
+          }
+        }
+        resultText += `補填合計　${補填合計.toLocaleString()}円`;
 
-        resultDiv.innerHTML = `<div class="mt-2">補填内訳：${fillText}</div>`;
+        document.getElementById("adjustmentResult").innerText = resultText;
+        worker.terminate();
       };
-    });
+    }
   </script>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-</head>
-<body class="p-4 text-sm">
-  <h1 class="text-lg font-bold mb-4">釣銭準備ツール</h1>
-  <div id="stockInputs" class="space-y-1 mb-4"></div>
-  <div class="space-x-2 mb-4">
-    <button id="calculateBtn" class="bg-blue-500 text-white px-3 py-1 rounded">計算する</button>
-    <button id="adjustBtn" class="bg-green-500 text-white px-3 py-1 rounded">調整</button>
-  </div>
-  <div id="result" class="mt-2"></div>
 </body>
 </html>
