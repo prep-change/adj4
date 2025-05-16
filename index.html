@@ -85,7 +85,7 @@
 
       document.getElementById("adjustmentResult").innerText = "調整中です...";
 
-      const worker = new Worker("worker.js", { type: "module" });
+      const worker = new Worker("./worker.js", { type: "module" });
 
       worker.postMessage({
         input: latestInput,
