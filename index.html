@@ -4,16 +4,132 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>釣銭準備ツール</title>
-  <script type="module" src="main.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script>
+    const denominations = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1];
+    const baseTargets = {
+      5000: 15,
+      1000: 42,
+      500: 50,
+      100: 100,
+      50: 50,
+      10: 100,
+      5: 16,
+      1: 20,
+    };
+    let latestInput = {};
+    let excludedShortageAdjustments = new Set();
+    let worker;
+
+    function calculateShortage() {
+      latestInput = {};
+      let total = 0;
+      for (let denom of denominations) {
+        const value = parseInt(document.getElementById(`input${denom}`).value) || 0;
+        latestInput[denom] = value;
+        total += denom * value;
+      }
+
+      let shortageText = "";
+      let shortageTotal = 0;
+      for (let denom of denominations) {
+        const need = baseTargets[denom] || 0;
+        const have = latestInput[denom] || 0;
+        const lack = Math.max(0, need - have);
+        if (lack > 0) {
+          shortageText += `${denom}円×${lack}枚 = ${denom * lack}円\n`;
+          shortageTotal += denom * lack;
+        }
+      }
+
+      if (shortageText) {
+        shortageText += `不足合計　${shortageTotal.toLocaleString()}円`;
+      } else {
+        shortageText = "不足はありません。";
+      }
+
+      document.getElementById("shortageResult").innerText = shortageText;
+      document.getElementById("adjustmentResult").innerText = "";
+    }
+
+    async function adjustShortage() {
+      if (!latestInput || Object.keys(latestInput).length === 0) {
+        document.getElementById("adjustmentResult").innerText = "※ 先に「不足を計算する」を押してください。";
+        return;
+      }
+
+      excludedShortageAdjustments = new Set(
+        denominations.filter(denom => document.getElementById(`exclude${denom}`).checked)
+      );
+
+      document.getElementById("adjustmentResult").innerText = "調整中です...";
+
+      if (!worker) {
+        worker = new Worker("worker.js");
+      }
+
+      worker.onmessage = function (e) {
+        const best = e.data;
+        if (!best) {
+          document.getElementById("adjustmentResult").innerText = "※ 補填できませんでした。";
+          return;
+        }
+
+        let resultText = `【調整後不足金種】\n`;
+        const { shortage, shortageTotal, combo } = best;
+
+        for (let denom of denominations) {
+          if (shortage[denom]) {
+            resultText += `${denom}円×${shortage[denom]}枚 = ${denom * shortage[denom]}円\n`;
+          }
+        }
+        resultText += `不足合計　${shortageTotal.toLocaleString()}円\n\n`;
+
+        resultText += `【補填内訳】\n`;
+        let 補填合計 = 0;
+        for (let denom of denominations) {
+          if (combo[denom]) {
+            const amount = denom * combo[denom];
+            補填合計 += amount;
+            resultText += `${denom}円×${combo[denom]}枚 = ${amount.toLocaleString()}円\n`;
+          }
+        }
+        resultText += `補填合計　${補填合計.toLocaleString()}円`;
+
+        document.getElementById("adjustmentResult").innerText = resultText;
+      };
+
+      worker.postMessage({
+        input: latestInput,
+        baseTargets: baseTargets,
+        maxTry: 10,
+        excluded: [...excludedShortageAdjustments],
+      });
+    }
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-100 p-4">
-  <div class="max-w-md mx-auto bg-white p-6 rounded-2xl shadow">
-    <h1 class="text-xl font-bold mb-4">釣銭準備ツール</h1>
-    <div id="inputs" class="space-y-2"></div>
-    <button id="calc" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded">計算する</button>
-    <div id="loading" class="mt-4 text-blue-500 hidden">調整中です...</div>
-    <pre id="result" class="mt-4 whitespace-pre-wrap bg-gray-100 p-4 rounded"></pre>
+<body class="p-4 text-sm">
+  <h1 class="text-xl font-bold mb-2">釣銭準備ツール</h1>
+
+  <div class="grid grid-cols-3 gap-2 mb-4">
+    <div class="font-bold">金種</div>
+    <div class="font-bold">在庫入力</div>
+    <div class="font-bold">調整除外</div>
+    <script>
+      for (let denom of denominations) {
+        document.write(`<div>${denom}円</div>`);
+        document.write(`<input id="input${denom}" type="number" class="border px-1" />`);
+        document.write(`<input id="exclude${denom}" type="checkbox" />`);
+      }
+    </script>
+  </div>
+
+  <button onclick="calculateShortage()" class="bg-blue-500 text-white px-3 py-1 rounded mr-2">不足を計算する</button>
+  <button onclick="adjustShortage()" class="bg-green-500 text-white px-3 py-1 rounded">調整</button>
+
+  <div class="mt-4 whitespace-pre-wrap">
+    <div id="shortageResult" class="mb-4 text-red-700 font-mono"></div>
+    <div id="adjustmentResult" class="text-green-700 font-mono"></div>
   </div>
 </body>
 </html>
