@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>釣銭準備ツール</title>
+  <script defer>
+    document.addEventListener("DOMContentLoaded", () => {
+      const denominations = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1];
+      const targets = { 5000: 15, 1000: 42, 500: 50, 100: 100, 50: 50, 10: 100, 5: 16, 1: 20 };
+      const targetTotal = Object.entries(targets).reduce((sum, [k, v]) => sum + k * v, 0);
+      const stockInputs = {};
+      const excludeChecks = {};
+
+      const stockContainer = document.getElementById("stockInputs");
+      denominations.forEach(denom => {
+        const row = document.createElement("div");
+        row.className = "flex items-center space-x-2";
+
+        const label = document.createElement("label");
+        label.textContent = `${denom}円`;
+        label.className = "w-16";
+
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = 0;
+        input.value = 0;
+        input.className = "w-20 border rounded p-1 text-right";
+        stockInputs[denom] = input;
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "ml-4";
+        excludeChecks[denom] = checkbox;
+
+        const cbLabel = document.createElement("label");
+        cbLabel.textContent = "固定";
+        cbLabel.className = "ml-1 text-sm";
+
+        row.append(label, input, checkbox, cbLabel);
+        stockContainer.appendChild(row);
+      });
+
+      const calculateBtn = document.getElementById("calculateBtn");
+      const adjustBtn = document.getElementById("adjustBtn");
+      const resultDiv = document.getElementById("result");
+
+      let latestShortage = {};
+
+      calculateBtn.onclick = () => {
+        const stock = {};
+        denominations.forEach(d => stock[d] = parseInt(stockInputs[d].value || "0", 10));
+        const shortage = {};
+        for (const d in targets) {
+          const needed = targets[d];
+          const have = stock[d] || 0;
+          if (have < needed) shortage[d] = needed - have;
+        }
+        latestShortage = shortage;
+        const shortageText = Object.entries(shortage)
+          .map(([k, v]) => `${k}円 × ${v}枚`)
+          .join("、");
+        resultDiv.innerHTML = `<div class="mt-2">不足：${shortageText || "なし"}</div>`;
+      };
+
+      adjustBtn.onclick = () => {
+        const stock = {};
+        denominations.forEach(d => stock[d] = parseInt(stockInputs[d].value || "0", 10));
+
+        const exclude = {};
+        for (const d of denominations) {
+          if (excludeChecks[d].checked) exclude[d] = true;
+        }
+
+        const shortage = { ...latestShortage };
+        const keys = Object.keys(shortage).map(Number);
+        const fixed = keys.filter(d => exclude[d]);
+
+        const tries = [];
+        const maxTry = 3;
+
+        function backtrack(idx, current) {
+          if (idx === keys.length) {
+            let totalShort = 0;
+            for (let i = 0; i < keys.length; i++) {
+              totalShort += keys[i] * current[i];
+            }
+            if (totalShort < 1000 || totalShort < 0.8 * estimateShortageValue()) return;
+
+            const trialStock = { ...stock };
+            for (let i = 0; i < keys.length; i++) {
+              trialStock[keys[i]] += current[i];
+            }
+
+            const need = {};
+            for (const d in targets) {
+              const have = trialStock[d] || 0;
+              const want = targets[d];
+              if (have < want) need[d] = want - have;
+            }
+
+            const filled = fillShortage(need, trialStock);
+            if (filled) {
+              tries.push({
+                added: keys.reduce((obj, k, i) => (obj[k] = current[i], obj), {}),
+                fill: filled
+              });
+            }
+            return;
+          }
+
+          const d = keys[idx];
+          const fixedVal = fixed.includes(d) ? shortage[d] : null;
+
+          const max = fixedVal !== null ? fixedVal : Math.min(maxTry, shortage[d] + 1);
+          const min = fixedVal !== null ? fixedVal : 0;
+
+          for (let i = min; i <= max; i++) {
+            current[idx] = i;
+            backtrack(idx + 1, current);
+          }
+        }
+
+        function fillShortage(need, trialStock) {
+          const result = {};
+          const denoms = denominations.slice().sort((a, b) => b - a);
+          let total = 0;
+
+          for (const d of denoms) {
+            const want = need[d] || 0;
+            const have = trialStock[d] || 0;
+            const use = Math.min(want, have);
+            if (use > 0) {
+              result[d] = use;
+              total += d * use;
+            }
+          }
+
+          return Object.keys(need).every(k => result[k] >= need[k]) ? result : null;
+        }
+
+        function estimateShortageValue() {
+          return Object.entries(latestShortage).reduce((sum, [k, v]) => sum + k * v, 0);
+        }
+
+        backtrack(0, Array(keys.length).fill(0));
+
+        if (tries.length === 0) {
+          resultDiv.innerHTML = `<div class="mt-2 text-red-500">調整失敗：補填できる組み合わせが見つかりませんでした。</div>`;
+          return;
+        }
+
+        const best = tries.reduce((a, b) => {
+          const aCount = Object.values(a.fill).reduce((s, v) => s + v, 0);
+          const bCount = Object.values(b.fill).reduce((s, v) => s + v, 0);
+          return aCount <= bCount ? a : b;
+        });
+
+        for (const d in best.added) {
+          stockInputs[d].value = parseInt(stockInputs[d].value || "0", 10) + best.added[d];
+        }
+
+        const fillText = Object.entries(best.fill)
+          .map(([k, v]) => `${k}円 × ${v}枚`)
+          .join("、");
+
+        resultDiv.innerHTML = `<div class="mt-2">補填内訳：${fillText}</div>`;
+      };
+    });
+  </script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="p-4 text-sm">
+  <h1 class="text-lg font-bold mb-4">釣銭準備ツール</h1>
+  <div id="stockInputs" class="space-y-1 mb-4"></div>
+  <div class="space-x-2 mb-4">
+    <button id="calculateBtn" class="bg-blue-500 text-white px-3 py-1 rounded">計算する</button>
+    <button id="adjustBtn" class="bg-green-500 text-white px-3 py-1 rounded">調整</button>
+  </div>
+  <div id="result" class="mt-2"></div>
+</body>
+</html>
