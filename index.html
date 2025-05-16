@@ -88,7 +88,7 @@
       await new Promise(resolve => setTimeout(resolve, 100));
 
       const input = latestInput;
-      const best = findOptimalAdjustment(input, baseTargets, 15);
+      const best = findOptimalAdjustment(input, baseTargets, 10);
       if (!best) {
         document.getElementById("adjustmentResult").innerText = "※ 補填できませんでした。";
         return;
